@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Place New Order - NhoyHub</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+<header class="bg-white border-b">
+  <div class="max-w-xl mx-auto px-4 py-4 flex justify-between items-center">
+    <h1 class="font-bold text-xl"><a href="index.html">NhoyHub</a></h1>
+    <nav class="text-sm space-x-4">
+      <a href="index.html" class="text-indigo-600 hover:underline">View Orders</a>
+    </nav>
+  </div>
+</header>
+
+<main class="max-w-xl mx-auto px-4 py-8 space-y-8">
+
+  <section class="bg-white border rounded-2xl p-6 shadow-lg">
+    <h2 class="font-semibold mb-6 text-2xl text-center text-indigo-700">🛒 Place Your Esign Order</h2>
+    
+    <div class="text-sm text-gray-600 space-y-2 mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded">
+        <p class="font-bold">✨ Note:</p>
+        <p>This web page performs the same function as the Telegram bot: collects UDID and payment proof.</p>
+        <p>Your order status will be **'pending'** until the admin approves it in the Admin Panel.</p>
+    </div>
+
+    <form id="orderForm" class="grid gap-4">
+      
+      <h3 class="font-medium text-lg border-b pb-2">1. Your Details</h3>
+      <input name="name" class="border rounded px-3 py-2 w-full" placeholder="Your Name (for reference)" required>
+      <input name="udid" class="border rounded px-3 py-2 w-full" placeholder="Your Device UDID (20-50 chars)" required pattern=".{20,50}" title="UDID must be between 20 and 50 characters.">
+      
+      <h3 class="font-medium text-lg border-b pb-2 mt-4">2. Select Plan (Payment Confirmed Offline)</h3>
+      <select name="plan" id="planSelect" class="border rounded px-3 py-2 w-full" required>
+        <option value="">-- Select Esign Plan --</option>
+        <option value="4">🔴 Esign Luck - $4 (No guarantee)</option>
+        <option value="7">🟡 Esign Basic - $7 (100 days guarantee)</option>
+        <option value="12">🟠 Esign Standard - $12 (300 days guarantee)</option>
+        <option value="16">🟢 Esign Premium - $16 (320 days guarantee)</option>
+      </select>
+      
+      <p class="text-sm text-gray-500 bg-gray-100 p-2 rounded">
+        **Reminder:** Actual payment (e.g., scanning the QR code from the bot) must be completed **before** submission.
+      </p>
+
+      <h3 class="font-medium text-lg border-b pb-2 mt-4">3. Upload Payment Proof Screenshot</h3>
+      <label for="imageUpload" class="text-sm font-medium text-gray-700">Payment Screenshot (Image File):</label>
+      <input name="image" id="imageUpload" type="file" accept="image/*" class="border rounded px-3 py-2 w-full" required>
+      
+      <button class="bg-indigo-600 text-white font-bold rounded px-4 py-3 mt-4 hover:bg-indigo-700 transition duration-150">
+        SUBMIT ORDER
+      </button>
+    </form>
+    
+    <p id="msg" class="text-center text-sm mt-4 font-semibold"></p>
+  </section>
+
+</main>
+
+<script>
+const API = "https://nhoy-api.onrender.com";
+
+document.getElementById('orderForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  
+  const form = e.target;
+  const msg = document.getElementById('msg');
+  const submitButton = form.querySelector('button');
+  
+  submitButton.disabled = true;
+  submitButton.textContent = "Processing... Please wait.";
+
+  const fd = new FormData();
+  
+  const udid = form.udid.value;
+  const planPrice = form.plan.value;
+  
+  const finalName = `${form.name.value} ($${planPrice} Plan)`;
+  
+  fd.append("name", finalName);
+  fd.append("udid", udid);
+
+  if (form.image.files[0]) {
+    fd.append("image", form.image.files[0]);
+  } else {
+    msg.innerHTML = '<span class="text-red-600">❌ Please upload a payment screenshot.</span>';
+    submitButton.disabled = false;
+    submitButton.textContent = "SUBMIT ORDER";
+    return;
+  }
+
+  try {
+    const res = await fetch(API + "/orders", {
+      method: "POST",
+      body: fd
+    });
+
+    const result = await res.json();
+
+    if (res.ok) {
+      msg.innerHTML = `
+        <span class="text-green-600">✅ Order Submitted Successfully!</span><br>
+        <span class="text-xs text-gray-700">Your Order ID: ${result.id}. Status is 'pending'.</span>
+        <div class="mt-2 text-xs"><a href="index.html" class="text-indigo-600 hover:underline">View Orders Page</a></div>
+      `;
+      form.reset(); 
+    } else {
+      let errorDetail = result.detail ? JSON.stringify(result.detail) : "Server error.";
+      msg.innerHTML = `<span class="text-red-600">❌ Failed to submit order: ${errorDetail}</span>`;
+    }
+  } catch (error) {
+    console.error("Fetch error:", error);
+    msg.innerHTML = '<span class="text-red-600">❌ Network Error. Is the FastAPI server running on http://127.0.0.1:8000?</span>';
+  } finally {
+    submitButton.disabled = false;
+    submitButton.textContent = "SUBMIT ORDER";
+  }
+});
+</script>
+</body>
+</html>

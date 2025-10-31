@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Admin Login</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen grid place-items-center p-4">
+  <form id="f" class="bg-white border rounded-2xl p-6 w-full max-w-[360px] space-y-3 shadow-lg">
+    <h1 class="text-xl font-bold">Admin Login</h1>
+    <input name="username" class="border rounded px-3 py-2 w-full" placeholder="Username" required>
+    <input name="password" type="password" class="border rounded px-3 py-2 w-full" placeholder="Password" required>
+    <button class="w-full bg-indigo-600 text-white rounded py-2 hover:bg-indigo-700 transition">Login</button>
+    <p id="msg" class="text-sm text-center"></p>
+    <div class="text-center text-sm">
+      <a href="index.html" class="text-indigo-600 hover:underline">← Back to site</a>
+    </div>
+  </form>
+<script>
+const API = "http://127.0.0.1:8000";
+document.getElementById('f').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const msg = document.getElementById('msg');
+  try {
+    const res = await fetch(API + "/login", { method:"POST", body: fd });
+    if (res.ok){
+      const j = await res.json();
+      localStorage.setItem("admin_token", j.token);
+      msg.textContent = "✅ Login success! Redirecting...";
+      setTimeout(()=>location.href="admin.html", 800);
+    } else {
+      msg.textContent = "❌ Invalid credentials";
+    }
+  } catch (error) {
+    msg.textContent = "❌ Network Error. Is the API running?";
+  }
+});
+</script>
+</body>
+</html>

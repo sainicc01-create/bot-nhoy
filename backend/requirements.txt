@@ -1,0 +1,9 @@
+fastapi==0.115.5
+uvicorn==0.30.6
+SQLAlchemy==2.0.36
+python-multipart==0.0.9
+pydantic==2.9.2
+aiofiles==24.1.0
+passlib[bcrypt]==1.7.4
+python-telegram-bot==21.4 # Added common bot library
+aiohttp

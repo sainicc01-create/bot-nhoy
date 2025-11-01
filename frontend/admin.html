@@ -20,23 +20,6 @@
 <main class="max-w-7xl mx-auto px-2 sm:px-4 py-8 space-y-8">
 
   <section class="bg-white border rounded-2xl p-4 sm:p-6 shadow-md">
-    <h2 class="font-semibold mb-4 text-lg text-indigo-600">🛠️ Global Image Configuration</h2>
-    
-    <form id="configPublicForm" class="flex flex-col sm:flex-row gap-3 items-end border-b pb-4 mb-4">
-      <div class="flex-grow w-full">
-        <label for="publicImageUrl" class="text-sm font-medium text-gray-700">Public Order List Image URL (Cart):</label>
-        <input name="public_image_url" id="publicImageUrl" class="border rounded px-3 py-2 w-full" placeholder="Paste external image URL here" required>
-        <div id="currentCartConfig" class="text-xs text-gray-600"></div>
-      </div>
-      <button class="bg-green-600 text-white rounded px-4 py-2 w-full sm:w-auto hover:bg-green-700 transition">Save Cart Image</button>
-    </form>
-
-    <h3 class="font-semibold text-gray-700 mt-4 mb-3">Esign Detail Image Gallery:</h3>
-    <div class="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-5 gap-3" id="esign-image-inputs">
-      </div>
-    <p id="configMsg" class="text-sm mt-2 font-medium"></p>
-  </section>
-  <section class="bg-white border rounded-2xl p-4 sm:p-6 shadow-md">
     <h2 class="font-semibold mb-3 text-lg">Add Order</h2>
     <form id="addForm" class="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
       <input name="name" class="border rounded px-3 py-2 w-full" placeholder="Name" required>
@@ -84,6 +67,24 @@
     </div>
   </section>
 
+    <section class="bg-white border rounded-2xl p-4 sm:p-6 shadow-md">
+    <h2 class="font-semibold mb-4 text-lg text-indigo-600">🛠️ Global Image Configuration</h2>
+    
+    <form id="configPublicForm" class="flex flex-col sm:flex-row gap-3 items-end border-b pb-4 mb-4">
+      <div class="flex-grow w-full">
+        <label for="publicImageUrl" class="text-sm font-medium text-gray-700">Public Order List Image URL (Cart):</label>
+        <input name="public_image_url" id="publicImageUrl" class="border rounded px-3 py-2 w-full" placeholder="Paste external image URL here" required>
+        <div id="currentCartConfig" class="text-xs text-gray-600"></div>
+      </div>
+      <button class="bg-green-600 text-white rounded px-4 py-2 w-full sm:w-auto hover:bg-green-700 transition">Save Cart Image</button>
+    </form>
+
+    <h3 class="font-semibold text-gray-700 mt-4 mb-3">Esign Detail Image Gallery:</h3>
+    <div class="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-5 gap-3" id="esign-image-inputs">
+      </div>
+    <p id="configMsg" class="text-sm mt-2 font-medium"></p>
+  </section>
+
 </main>
 
 <div id="modal" class="fixed inset-0 bg-black/40 hidden items-center justify-center p-4 z-40">
@@ -109,7 +110,7 @@
 </div>
 
 <script>
-const API = "http://127.0.0.1:8000";
+const API = "https://nhoy-api.onrender.com";
 let page = 1, pageSize = 12, total = 0;
 
 function token() { return localStorage.getItem("admin_token") || ""; }

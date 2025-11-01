@@ -1,8 +1,8 @@
-import os
-import datetime
-import re
+import os, datetime
+import re 
+import json 
 from typing import List, Optional
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Query, Request
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Query, Request 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import OAuth2PasswordBearer
@@ -12,10 +12,8 @@ from bson.objectid import ObjectId
 from math import ceil
 
 # ========== ENV & DB SETUP ==========
-# FIX 1: Allow MONGO_URL to be read safely (it's already correct in your code)
 MONGO_URL = os.getenv("MONGO_URL")
 if not MONGO_URL:
-    # Use a generic local fallback for development if needed, but error is safer
     raise RuntimeError("❌ MONGO_URL environment variable is missing!")
 
 client = AsyncIOMotorClient(MONGO_URL)
@@ -24,16 +22,21 @@ db = client["nhoyhub"]
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "nhoyhub_admin_2025") # Get token from ENV
-PUBLIC_IMAGE_URL = os.getenv("PUBLIC_IMAGE_URL", "https://i.pinimg.com/736x/67/74/40/67744063f3ce36103729fb5ed2edc98e.jpg")
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "nhoyhub_admin_2025")
+
+# Default values (Used for config initialization and fallbacks)
+DEFAULT_CART_IMAGE = "https://i.pinimg.com/736x/67/74/40/67744063f3ce36103729fb5ed2edc98e.jpg" 
+DEFAULT_ESIGN_IMAGE = "https://via.placeholder.com/400x200/007bff/ffffff?text=Esign+Image"
+DEFAULT_DOWNLOAD_LINK = "#"
+DEFAULT_ADMIN_EMAIL = "admin@nhoyhub.com"
 
 
 app = FastAPI(title="NhoyHub Order API", version="3.0 - MongoDB")
 
-# FIX 2: Relax CORS for testing (allowing local dev and your Vercel domain)
+# FIX: Relax CORS for testing (assuming you use Render or Vercel)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://127.0.0.1:5500", "http://localhost:8000", "https://bot-nhoy.vercel.app", "*"], # Added local and wildcard for development ease
+    allow_origins=["http://127.0.0.1:5500", "http://localhost:8000", "https://bot-nhoy.vercel.app", "*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -41,17 +44,7 @@ app.add_middleware(
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
-# Helper to check token outside of standard dependency (used for list_orders)
-def is_admin_request(headers):
-    token = headers.get("authorization", "")
-    return token == f"Bearer {ADMIN_TOKEN}"
-
-# Dependency injection for admin check
-def require_admin(token: str = Depends(oauth2_scheme)):
-    if token != ADMIN_TOKEN:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-# ========== MODEL & UTILS ==========
+# ========== MODELS & UTILS ==========
 class OrderOut(BaseModel):
     id: str
     name: str
@@ -68,20 +61,130 @@ class PageOut(BaseModel):
     page: int
     page_size: int
 
+class OrderUpdateStatus(BaseModel):
+    status: str = Query(..., pattern="^(pending|approved|rejected)$")
+    name: Optional[str] = None
+    
+class ConfigUpdateImage(BaseModel):
+    image_url: str
+
 def safe_filename(name: str):
     return re.sub(r"[^a-zA-Z0-9_-]", "", name)
 
-# ========== API ENDPOINTS ==========
+# Dependency injection for admin check
+def require_admin(token: str = Depends(oauth2_scheme)):
+    if token != ADMIN_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+def is_admin_request(headers):
+    token = headers.get("authorization", "")
+    return token == f"Bearer {ADMIN_TOKEN}"
+
+
+# ========== DB INITIALIZATION (Async Startup) ==========
+@app.on_event("startup")
+async def startup_db_init():
+    """Ensures default config values exist in MongoDB."""
+    
+    config_keys = {
+        'public_image_url': DEFAULT_CART_IMAGE,
+        'esign_image_1': DEFAULT_ESIGN_IMAGE + " 1",
+        'esign_image_2': DEFAULT_ESIGN_IMAGE + " 2",
+        'esign_image_3': DEFAULT_ESIGN_IMAGE + " 3",
+        'esign_image_4': DEFAULT_ESIGN_IMAGE + " 4",
+        'esign_image_5': DEFAULT_ESIGN_IMAGE + " 5",
+    }
+    
+    # Initialize Admin account (for simplicity, only check/set token)
+    # NOTE: Real world apps would hash passwords.
+    await db.admins.update_one(
+        {"username": "admin"},
+        {"$set": {"password": "1234", "token": ADMIN_TOKEN}},
+        upsert=True
+    )
+    
+    # Initialize Configs
+    for key, default_value in config_keys.items():
+        await db.config.update_one(
+            {"key": key},
+            {"$set": {"value": default_value}},
+            upsert=True
+        )
+
+# ========== AUTH & HELPERS ==========
+# Helper function to get config values
+async def get_config_value(key: str):
+    config = await db.config.find_one({"key": key})
+    if config:
+        return config['value']
+    # Fallback to default if not found
+    if key == 'public_image_url':
+        return DEFAULT_CART_IMAGE
+    elif 'esign_image_' in key:
+        return DEFAULT_ESIGN_IMAGE
+    return "#"
+
+@app.post("/login")
+async def login(username: str = Form(...), password: str = Form(...)):
+    admin_data = await db.admins.find_one({"username": username, "password": password})
+    if admin_data:
+        # NOTE: Using the hardcoded token for simplicity as before
+        return {"token": ADMIN_TOKEN, "username": username} 
+    raise HTTPException(401, "Invalid credentials")
+
 @app.get("/", tags=["health"])
 async def health():
-    # Simple check to see if DB client is initialized
     try:
         await client.admin.command('ping')
         return {"ok": True, "db": "MongoDB Connected ✅"}
     except Exception:
-        return {"ok": False, "db": "MongoDB Connection Failed ❌"}
+        raise HTTPException(503, "Service Unavailable: MongoDB connection failed.")
 
 
+# ========== CONFIG ENDPOINTS ==========
+@app.get("/config", dependencies=[Depends(require_admin)])
+async def get_config():
+    """Returns current configuration (Admin only)."""
+    config_data = {
+        "public_image_url": await get_config_value('public_image_url'),
+    }
+    for i in range(1, 6):
+        config_data[f"esign_image_{i}"] = await get_config_value(f"esign_image_{i}")
+        
+    return config_data
+
+@app.put("/config/public", dependencies=[Depends(require_admin)])
+async def update_config_public(public_image_url: str = Form(...)):
+    """Updates the public order list image URL."""
+    if not public_image_url:
+        raise HTTPException(400, "Image URL cannot be empty.")
+        
+    await db.config.update_one(
+        {"key": "public_image_url"},
+        {"$set": {"value": public_image_url}},
+        upsert=True
+    )
+    return {"message": "Public image URL updated successfully", "public_image_url": public_image_url}
+
+@app.put("/config/esign_image/{image_number}", dependencies=[Depends(require_admin)])
+async def update_config_esign_image(image_number: int, image_url: str = Form(...)):
+    """Updates a single Esign image URL (1 to 5)."""
+    if image_number < 1 or image_number > 5:
+        raise HTTPException(400, "Image number must be between 1 and 5.")
+    if not image_url:
+        raise HTTPException(400, "Image URL cannot be empty.")
+        
+    key = f"esign_image_{image_number}"
+    
+    await db.config.update_one(
+        {"key": key},
+        {"$set": {"value": image_url}},
+        upsert=True
+    )
+    return {"message": f"Esign Image {image_number} updated successfully", "image_url": image_url}
+
+
+# ========== ORDERS (MODIFIED FOR PAGINATION & FILTERING) ==========
 @app.post("/orders", response_model=OrderOut)
 async def create_order(
     name: str = Form(...),
@@ -91,12 +194,10 @@ async def create_order(
     price_match = re.search(r"\$(\d+)", name)
     price = price_match.group(1) if price_match else "N/A"
 
-    # Save file content locally
     ext = os.path.splitext(image.filename or "")[1] or ".jpg"
     filename = f"{int(datetime.datetime.utcnow().timestamp())}_{safe_filename(name)[:12]}{ext}"
     filepath = os.path.join(UPLOAD_DIR, filename)
 
-    # Use async file writing for non-blocking I/O
     content = await image.read()
     if not content:
         raise HTTPException(400, "Empty image")
@@ -117,8 +218,6 @@ async def create_order(
     data["id"] = str(result.inserted_id)
     return data
 
-
-# FIX 3: Implement MongoDB pagination, filtering, and security logic matching the HTML frontend
 @app.get("/orders", response_model=PageOut)
 async def list_orders(
     request: Request,
@@ -126,7 +225,7 @@ async def list_orders(
     q: Optional[str] = None,
     page: int = 1,
     page_size: int = 12,
-    sort: str = "-id"
+    sort: str = "-id" # "-id" for descending, "id" for ascending
 ):
     is_admin = is_admin_request(request.headers)
     page = max(page, 1)
@@ -135,8 +234,7 @@ async def list_orders(
     query = {}
     
     if status:
-        # NOTE: The frontend admin.html sends 'rejected' value when 'backlist' is selected.
-        query["status"] = status 
+        query["status"] = status
     
     if q:
         query["$or"] = [
@@ -156,14 +254,16 @@ async def list_orders(
     cursor = db.orders.find(query).sort(sort_field, sort_order).skip(skip).limit(page_size)
     rows = await cursor.to_list(page_size)
     
+    public_image_url = await get_config_value('public_image_url')
+    
     items = []
     for r in rows:
         r["id"] = str(r["_id"])
         
         # SECURITY/UX: Replace payment image and hide sensitive data from public view
         if not is_admin:
-            r["image_url"] = PUBLIC_IMAGE_URL
-            # UDID is visible only because requested by user, otherwise it should be hidden here.
+            r["image_url"] = public_image_url
+            # UDID remains visible based on current user requirement
         
         items.append(r)
         
@@ -178,10 +278,11 @@ async def list_orders(
 @app.get("/orders/{order_id}", response_model=OrderOut)
 async def get_order(order_id: str):
     try:
-        row = await db.orders.find_one({"_id": ObjectId(order_id)})
+        object_id = ObjectId(order_id)
     except Exception:
         raise HTTPException(404, "Invalid Order ID format")
-
+        
+    row = await db.orders.find_one({"_id": object_id})
     if not row:
         raise HTTPException(404, "Order not found")
     row["id"] = str(row["_id"])
@@ -202,17 +303,14 @@ async def update_order(
     except Exception:
         raise HTTPException(404, "Invalid Order ID format")
     
-    # 1. Fetch current order to handle file replacement and check existence
     current_order = await db.orders.find_one({"_id": object_id})
     if not current_order:
         raise HTTPException(404, "Order not found")
 
     update_data = {}
     
-    # Handle File Upload (This logic is simplified for deployment)
+    # Handle File Upload
     if image is not None:
-        # NOTE: In a real deployment, you must delete the old file from S3/storage here.
-        
         ext = os.path.splitext(image.filename or "")[1] or ".jpg"
         filename = f"{int(datetime.datetime.utcnow().timestamp())}_{safe_filename(name or current_order['name'])[:12]}{ext}"
         filepath = os.path.join(UPLOAD_DIR, filename)
@@ -230,17 +328,13 @@ async def update_order(
     if status is not None:
         update_data["status"] = status
     if download_link is not None:
-        update_data["download_link"] = download_link or "#" # Save '#' if link is cleared
+        update_data["download_link"] = download_link or "#"
 
-    # 2. Perform Update
+    # Perform Update
     result = await db.orders.update_one(
         {"_id": object_id}, {"$set": update_data}
     )
     
-    if result.modified_count == 0 and not result.upserted_id:
-        raise HTTPException(404, "Order not found or no changes made")
-
-    # 3. Return Updated Row
     row = await db.orders.find_one({"_id": object_id})
     row["id"] = str(row["_id"])
     return row
@@ -257,64 +351,8 @@ async def delete_order(order_id: str):
     if not row:
         raise HTTPException(404, "Order not found")
         
-    # NOTE: In a real deployment, you must delete the file from S3/storage here.
-    
     await db.orders.delete_one({"_id": object_id})
     return {"deleted": True}
 
 
-# FIX 4: Endpoint for updating config (Required by Admin Panel HTML)
-@app.get("/config", dependencies=[Depends(require_admin)])
-async def get_config():
-    """Returns all configuration data."""
-    config = {}
-    keys = ['public_image_url', 'esign_image_1', 'esign_image_2', 'esign_image_3', 'esign_image_4', 'esign_image_5']
-    
-    # Fetch all configuration items in one go
-    cursor = db.config.find({"key": {"$in": keys}})
-    rows = await cursor.to_list(10)
-    
-    # Convert list of dicts to a single dict keyed by 'key'
-    config_dict = {item['key']: item['value'] for item in rows}
-    
-    # Ensure all expected keys are present, using defaults if necessary
-    for key in keys:
-        config[key] = config_dict.get(key) or (PUBLIC_IMAGE_URL if key == 'public_image_url' else DEFAULT_ESIGN_IMAGE)
-        
-    return config
-
-# Endpoint for updating a single config key (like public_image_url)
-@app.put("/config/public", dependencies=[Depends(require_admin)])
-async def update_config_public(public_image_url: str = Form(...)):
-    """Updates the public order list image URL."""
-    if not public_image_url:
-        raise HTTPException(400, "Image URL cannot be empty.")
-        
-    await db.config.update_one(
-        {"key": "public_image_url"}, 
-        {"$set": {"value": public_image_url}}, 
-        upsert=True
-    )
-    return {"message": "Public image URL updated successfully", "public_image_url": public_image_url}
-
-# Endpoint for updating a single Esign image gallery URL
-@app.put("/config/esign_image/{image_number}", dependencies=[Depends(require_admin)])
-async def update_config_esign_image(image_number: int, image_url: str = Form(...)):
-    """Updates a single Esign image URL (1 to 5)."""
-    if image_number < 1 or image_number > 5:
-        raise HTTPException(400, "Image number must be between 1 and 5.")
-    if not image_url:
-        raise HTTPException(400, "Image URL cannot be empty.")
-        
-    key = f"esign_image_{image_number}"
-    
-    await db.config.update_one(
-        {"key": key}, 
-        {"$set": {"value": image_url}}, 
-        upsert=True
-    )
-    return {"message": f"Esign Image {image_number} updated successfully", "image_url": image_url}
-
-
-# Mount static files to serve images
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")

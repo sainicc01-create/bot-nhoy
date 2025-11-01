@@ -27,7 +27,7 @@
                 <img id="esign-image" src="https://via.placeholder.com/400x200/cccccc/000000?text=Loading..." alt="Esign Product Image" class="w-full h-auto rounded-lg shadow-xl border-4 border-indigo-200 transition duration-300">
                 
                 <button id="prev-image" class="absolute top-1/2 left-0 transform -translate-y-1/2 bg-white/70 p-2 rounded-full shadow-lg ml-2 hover:bg-white transition disabled:opacity-50">
-                    <svg class="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                    <svg class="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
                 </button>
                 <button id="next-image" class="absolute top-1/2 right-0 transform -translate-y-1/2 bg-white/70 p-2 rounded-full shadow-lg mr-2 hover:bg-white transition disabled:opacity-50">
                     <svg class="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
@@ -84,7 +84,7 @@
 
 <script>
 const API = "https://nhoy-api.onrender.com";
-const FIXED_ADMIN_TOKEN = "admin_token"; // Use the fixed token for config fetching
+const FIXED_ADMIN_TOKEN = "admin_token"; 
 const defaultPlaceholder = "https://via.placeholder.com/400x200/cccccc/000000?text=No+Image+Set";
 
 let esignImageUrls = [];
@@ -93,7 +93,6 @@ let currentImageIndex = 0;
 // Fetches the global Esign image URL array from the DB config table
 async function getGlobalConfig() {
     try {
-        // Use the fixed token to access the protected /config endpoint
         const res = await fetch(API + "/config", { 
             headers: { "Authorization": "Bearer " + FIXED_ADMIN_TOKEN } 
         });
@@ -127,7 +126,7 @@ function updateImageDisplay() {
 
     if (esignImageUrls.length === 0 || esignImageUrls[0] === defaultPlaceholder) {
         imgElement.src = defaultPlaceholder;
-        counter.textContent = "Image Gallery Empty (Admin needs to set URLs)";
+        counter.textContent = "Image Gallery Empty";
         prevBtn.disabled = true;
         nextBtn.disabled = true;
         return;

@@ -18,6 +18,24 @@
 </header>
 
 <main class="max-w-7xl mx-auto px-2 sm:px-4 py-8 space-y-8">
+
+  <section class="bg-white border rounded-2xl p-4 sm:p-6 shadow-md">
+    <h2 class="font-semibold mb-4 text-lg text-indigo-600">🛠️ Global Image Configuration</h2>
+    
+    <form id="configPublicForm" class="flex flex-col sm:flex-row gap-3 items-end border-b pb-4 mb-4">
+      <div class="flex-grow w-full">
+        <label for="publicImageUrl" class="text-sm font-medium text-gray-700">Public Order List Image URL (Cart):</label>
+        <input name="public_image_url" id="publicImageUrl" class="border rounded px-3 py-2 w-full" placeholder="Paste external image URL here" required>
+        <div id="currentCartConfig" class="text-xs text-gray-600"></div>
+      </div>
+      <button class="bg-green-600 text-white rounded px-4 py-2 w-full sm:w-auto hover:bg-green-700 transition">Save Cart Image</button>
+    </form>
+
+    <h3 class="font-semibold text-gray-700 mt-4 mb-3">Esign Detail Image Gallery:</h3>
+    <div class="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-5 gap-3" id="esign-image-inputs">
+      </div>
+    <p id="configMsg" class="text-sm mt-2 font-medium"></p>
+  </section>
   <section class="bg-white border rounded-2xl p-4 sm:p-6 shadow-md">
     <h2 class="font-semibold mb-3 text-lg">Add Order</h2>
     <form id="addForm" class="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
@@ -33,8 +51,8 @@
     <div class="flex flex-wrap gap-2 items-center">
       <input id="q" class="border rounded px-3 py-2 w-full sm:w-auto" placeholder="Search name or UDID">
       <select id="status" class="border rounded px-3 py-2 w-full sm:w-auto">
-        <option value="">All</option><option>pending</option><option>approved</option><option>blackList</option>
-      </select>
+        <option value="">All</option><option>pending</option><option>approved</option><option value="rejected">backlist</option>
+        </select>
       <button id="btnSearch" class="px-4 py-2 rounded bg-gray-900 text-white w-full sm:w-auto hover:bg-gray-700 transition">Search</button>
       <div class="ml-auto text-sm w-full sm:w-auto text-center sm:text-right pt-2 sm:pt-0" id="meta"></div>
     </div>
@@ -66,24 +84,6 @@
     </div>
   </section>
 
-    <section class="bg-white border rounded-2xl p-4 sm:p-6 shadow-md">
-    <h2 class="font-semibold mb-4 text-lg text-indigo-600">🛠️ Global Image Configuration</h2>
-    
-    <form id="configPublicForm" class="flex flex-col sm:flex-row gap-3 items-end border-b pb-4 mb-4">
-      <div class="flex-grow w-full">
-        <label for="publicImageUrl" class="text-sm font-medium text-gray-700">Public Order List Image URL (Cart):</label>
-        <input name="public_image_url" id="publicImageUrl" class="border rounded px-3 py-2 w-full" placeholder="Paste external image URL here" required>
-        <div id="currentCartConfig" class="text-xs text-gray-600"></div>
-      </div>
-      <button class="bg-green-600 text-white rounded px-4 py-2 w-full sm:w-auto hover:bg-green-700 transition">Save Cart Image</button>
-    </form>
-
-    <h3 class="font-semibold text-gray-700 mt-4 mb-3">Esign Detail Image Gallery:</h3>
-    <div class="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-5 gap-3" id="esign-image-inputs">
-      </div>
-    <p id="configMsg" class="text-sm mt-2 font-medium"></p>
-  </section>
-
 </main>
 
 <div id="modal" class="fixed inset-0 bg-black/40 hidden items-center justify-center p-4 z-40">
@@ -95,8 +95,8 @@
       <input name="udid" class="border rounded px-3 py-2 w-full" placeholder="UDID">
       <input name="download_link" class="border rounded px-3 py-2 w-full" placeholder="Esign Download Link" type="url">
       <select name="status" class="border rounded px-3 py-2 w-full">
-        <option>pending</option><option>approved</option><option>rejected</option>
-      </select>
+        <option value="pending">pending</option><option value="approved">approved</option><option value="rejected">backlist</option>
+        </select>
       <label class="text-sm">Replace Image (optional)</label>
       <input name="image" type="file" class="border rounded px-3 py-2 w-full">
       <div class="flex justify-end gap-2 pt-3">
@@ -109,7 +109,7 @@
 </div>
 
 <script>
-const API = "https://nhoy-api.onrender.com";
+const API = "http://127.0.0.1:8000";
 let page = 1, pageSize = 12, total = 0;
 
 function token() { return localStorage.getItem("admin_token") || ""; }
@@ -171,7 +171,7 @@ function attachEsignFormListeners() {
 
                 if (res.ok) {
                     msgDiv.textContent = `✅ Esign Image ${imageNumber} Updated!`;
-                    loadConfig(); 
+                    loadConfig(); // Reload all configs and update UI
                 } else {
                     const errorData = await res.json();
                     msgDiv.textContent = `❌ Failed to update Image ${imageNumber}: ${errorData.detail || 'Server error'}`;
@@ -266,10 +266,17 @@ async function load(){
   const st = document.getElementById('status').value;
   const url = new URL(API + "/orders");
   url.searchParams.set("page", page);
+  // FIX: If search status is 'backlist', send 'rejected' to the API
+  if (st === 'backlist') {
+      url.searchParams.set("status", 'rejected');
+  } else if (st) {
+      url.searchParams.set("status", st);
+  }
+  
   url.searchParams.set("page_size", pageSize);
   url.searchParams.set("sort", "-id");
   if (q) url.searchParams.set("q", q);
-  if (st) url.searchParams.set("status", st);
+  
 
   try {
     const res = await fetch(url, { headers: authHeaders() }); 
@@ -281,6 +288,14 @@ async function load(){
     const tb = document.getElementById('tbody');
     tb.innerHTML = "";
     data.items.forEach(o=>{
+      // Map DB status to display status
+      const displayStatus = o.status === 'rejected' ? 'backlist' : o.status;
+      
+      const statusColor = o.status==='approved'?'border-green-500 bg-green-50 text-green-700':'' +
+                          (o.status==='pending'?'border-yellow-500 bg-yellow-50 text-yellow-700':'' )+
+                          // Apply red color for the 'rejected' DB status, which is displayed as 'backlist'
+                          (o.status==='rejected'?'border-red-500 bg-red-50 text-red-700':'');
+
       tb.innerHTML += `
         <tr class="border-b">
           <td class="p-2">${o.id}</td>
@@ -288,7 +303,7 @@ async function load(){
           <td class="p-2">${o.name}</td>
           <td class="p-2 break-all font-mono text-xs">${o.udid}</td>
           <td class="p-2">
-            <span class="px-2 py-0.5 rounded-full border text-xs ${o.status==='approved'?'border-green-500 bg-green-50 text-green-700':''} ${o.status==='pending'?'border-yellow-500 bg-yellow-50 text-yellow-700':''} ${o.status==='rejected'?'border-red-500 bg-red-50 text-red-700':''}">${o.status}</span>
+            <span class="px-2 py-0.5 rounded-full border text-xs ${statusColor}">${displayStatus}</span>
           </td>
           <td class="p-2">
              <a href="${o.download_link}" target="_blank" class="text-sm text-blue-600 hover:underline">${o.download_link.length > 5 ? 'Download' : 'Set Link'}</a>
@@ -334,7 +349,8 @@ async function openEdit(id){
     f.id.value = o.id;
     f.name.value = o.name;
     f.udid.value = o.udid;
-    f.status.value = o.status;
+    // Map DB status to display status: 'rejected' -> 'backlist'
+    f.status.value = o.status === 'rejected' ? 'backlist' : o.status; 
     f.download_link.value = o.download_link === '#' ? '' : o.download_link;
     document.getElementById('modal').classList.remove('hidden');
     document.getElementById('modal').classList.add('flex');
@@ -354,9 +370,12 @@ document.getElementById('editForm').addEventListener('submit', async (e)=>{
   const id = f.id.value;
   const fd = new FormData();
   
+  // Map display status ('backlist') back to DB status ('rejected')
+  const finalStatus = f.status.value === 'backlist' ? 'rejected' : f.status.value;
+  
   fd.append("name", f.name.value);
   fd.append("udid", f.udid.value);
-  fd.append("status", f.status.value);
+  fd.append("status", finalStatus); // Send DB value ('rejected' or 'pending' or 'approved')
   fd.append("download_link", f.download_link.value || '#');
   if (f.image.files[0]) fd.append("image", f.image.files[0]);
 

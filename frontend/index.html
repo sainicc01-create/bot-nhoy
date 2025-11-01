@@ -97,7 +97,7 @@ menuToggle.onclick = openMenu;
 closeMenu.onclick = closeMenuHandler;
 
 
-const API = "https://nhoy-api.onrender.com";
+const API = "http://127.0.0.1:8000";
 let page = 1, pageSize = 12, lastTotal = 0;
 
 async function load() {
@@ -125,6 +125,15 @@ async function load() {
       return;
     }
     data.items.forEach(o => {
+      // 1. Map DB status 'rejected' to display status 'backlist' for the label
+      const displayStatus = o.status === 'rejected' ? 'backlist' : o.status;
+      
+      // 2. Define colors based on DB status (rejected = red)
+      const statusColor = o.status==='approved'?'border-green-500 bg-green-50 text-green-700':'' +
+                          (o.status==='pending'?'border-yellow-500 bg-yellow-50 text-yellow-700':'' )+
+                          (o.status==='rejected'?'border-red-500 bg-red-50 text-red-700':'');
+
+
       grid.innerHTML += `
         <article class="bg-white border rounded-xl overflow-hidden shadow-sm hover:shadow-md transition">
           <img src="${o.image_url}" class="w-full h-40 object-cover" alt="Order Image">
@@ -134,8 +143,7 @@ async function load() {
             <div class="font-mono break-all text-gray-700 text-xs">UDID: ${o.udid}</div> 
             
             <div class="text-xs">Status:
-              <span class="px-2 py-0.5 rounded-full border text-xs ${o.status==='approved'?'border-green-500 bg-green-50 text-green-700':''
-              } ${o.status==='pending'?'border-yellow-500 bg-yellow-50 text-yellow-700':''} ${o.status==='rejected'?'border-red-500 bg-red-50 text-red-700':''}">${o.status}</span>
+              <span class="px-2 py-0.5 rounded-full border text-xs ${statusColor}">${displayStatus}</span>
             </div>
             
             <div class="pt-2">
@@ -143,6 +151,7 @@ async function load() {
                     View Details →
                 </a>
             </div>
+            
             <div class="text-xs text-gray-500">${new Date(o.created_at).toLocaleString()}</div>
           </div>
         </article>`;

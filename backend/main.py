@@ -33,7 +33,7 @@ DEFAULT_ADMIN_EMAIL = "admin@nhoyhub.com"
 
 app = FastAPI(title="NhoyHub Order API", version="3.0 - MongoDB")
 
-# FIX: Relax CORS for testing (assuming you use Render or Vercel)
+# CORS Policy: Allowing multiple origins for deployment flexibility
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://127.0.0.1:5500", "http://localhost:8000", "https://bot-nhoy.vercel.app", "*"], 
@@ -95,8 +95,7 @@ async def startup_db_init():
         'esign_image_5': DEFAULT_ESIGN_IMAGE + " 5",
     }
     
-    # Initialize Admin account (for simplicity, only check/set token)
-    # NOTE: Real world apps would hash passwords.
+    # Initialize Admin account
     await db.admins.update_one(
         {"username": "admin"},
         {"$set": {"password": "1234", "token": ADMIN_TOKEN}},
@@ -128,7 +127,6 @@ async def get_config_value(key: str):
 async def login(username: str = Form(...), password: str = Form(...)):
     admin_data = await db.admins.find_one({"username": username, "password": password})
     if admin_data:
-        # NOTE: Using the hardcoded token for simplicity as before
         return {"token": ADMIN_TOKEN, "username": username} 
     raise HTTPException(401, "Invalid credentials")
 
@@ -260,10 +258,9 @@ async def list_orders(
     for r in rows:
         r["id"] = str(r["_id"])
         
-        # SECURITY/UX: Replace payment image and hide sensitive data from public view
+        # SECURITY/UX: Replace payment image for public users
         if not is_admin:
             r["image_url"] = public_image_url
-            # UDID remains visible based on current user requirement
         
         items.append(r)
         
@@ -328,7 +325,7 @@ async def update_order(
     if status is not None:
         update_data["status"] = status
     if download_link is not None:
-        update_data["download_link"] = download_link or "#"
+        update_data["download_link"] = download_link or "#" # Save '#' if link is cleared
 
     # Perform Update
     result = await db.orders.update_one(

@@ -12,16 +12,18 @@ from sqlalchemy import text, StaticPool
 from sqlalchemy.exc import IntegrityError
 from urllib.parse import quote_plus
 from math import ceil
+from asyncio import sleep
 
 # ========== ENV & DB SETUP ==========
 # ⚠️ ជំនួស [YOUR_PASSWORD] ដោយពាក្យសម្ងាត់ពិតប្រាកដរបស់អ្នក។
-NEW_SAFE_PASSWORD = "nhoy@2003?ww" 
+NEW_SAFE_PASSWORD = "nhoy@2003?ww"  # <-- ប្រើពាក្យសម្ងាត់ពិតប្រាកដរបស់អ្នកនៅទីនេះ
 SAFE_PASSWORD_QUOTED = quote_plus(NEW_SAFE_PASSWORD) 
 
-# FIX: ប្រើ Project Reference ID ថ្មី wsejiqtuysgbmobertco
+# FIX: ប្រើ CONNECTION POOLER URI (Port 6543)
+# Host Pooler (aws-0-ap-southeast-1.pooler.supabase.com) ត្រូវតែត្រូវតាម Region របស់អ្នក
 DATABASE_URL = os.getenv(
     "DATABASE_URL", 
-    f"postgresql+asyncpg://postgres:{SAFE_PASSWORD_QUOTED}@db.wsejiqtuysgbmobertco.supabase.co:5432/postgres"
+    f"postgresql+asyncpg://postgres.wsejiqtuysgbmobertco:{SAFE_PASSWORD_QUOTED}@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres"
 )
 
 # Setup SQLAlchemy Async Engine
@@ -125,12 +127,25 @@ async def create_db_tables(conn):
 async def startup_event():
     """Initializes database structure on startup."""
     try:
-        async with engine.begin() as conn:
-            await create_db_tables(conn)
-            print("Database setup complete: Tables and default data checked/created.")
+        # ព្យាយាមភ្ជាប់ម្តងទៀតរហូតដល់ ៥ ដង ប្រសិនបើបរាជ័យ (សម្រាប់ពេល Pooler ចាប់ផ្តើម)
+        for attempt in range(5):
+            try:
+                async with engine.begin() as conn:
+                    await create_db_tables(conn)
+                    print("Database setup complete: Tables and default data checked/created.")
+                    return # ចេញពី loop បើជោគជ័យ
+            except Exception as e:
+                print(f"Database connection attempt {attempt+1} failed: {e}. Retrying in 5 seconds...")
+                if attempt < 4:
+                    await sleep(5)
+                else:
+                    print(f"FATAL DATABASE ERROR ON STARTUP after 5 attempts: {e}")
+                    raise HTTPException(503, detail="Service Unavailable: Database failed to initialize after multiple attempts.")
+
+
     except Exception as e:
-        print(f"FATAL DATABASE ERROR ON STARTUP: {e}")
-        # raise Exception("Database failed to initialize.")
+        # បើការប៉ុនប៉ងទាំង ៥ បរាជ័យ វានឹងលើក HTTPException(503) ឡើង
+        pass
 
 
 # ========== MODELS & UTILS (Keep existing models) ==========
@@ -198,6 +213,7 @@ async def health():
              await conn.execute(text("SELECT 1"))
         return {"ok": True, "db": "PostgreSQL Connected ✅"}
     except Exception as e:
+        # ប្រសិនបើ DB មិនអាចភ្ជាប់បាន នឹងបង្ហាញ 503
         raise HTTPException(503, detail="Service Unavailable: Database connection failed.")
 
 
@@ -229,7 +245,7 @@ async def update_config_public(session: AsyncSession = Depends(get_db_session), 
     await session.commit()
     return {"message": "Public image URL updated successfully", "public_image_url": public_image_url}
 
-# FIX: កែតម្រូវលំដាប់ Arguments
+# កែតម្រូវលំដាប់ Arguments
 @app.put("/config/esign_image/{image_number}", dependencies=[Depends(require_admin)])
 async def update_config_esign_image(
     image_number: int, 

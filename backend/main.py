@@ -201,7 +201,7 @@ async def health():
         raise HTTPException(503, detail="Service Unavailable: Database connection failed.")
 
 
-# ========== CONFIG ENDPOINTS (Keep existing logic) ==========
+# ========== CONFIG ENDPOINTS (FIXED update_config_esign_image) ==========
 @app.get("/config", dependencies=[Depends(require_admin)])
 async def get_config(session: AsyncSession = Depends(get_db_session)):
     """Returns current configuration (Admin only)."""
@@ -229,8 +229,13 @@ async def update_config_public(session: AsyncSession = Depends(get_db_session), 
     await session.commit()
     return {"message": "Public image URL updated successfully", "public_image_url": public_image_url}
 
+# FIX: កែតម្រូវលំដាប់ Arguments
 @app.put("/config/esign_image/{image_number}", dependencies=[Depends(require_admin)])
-async def update_config_esign_image(session: AsyncSession = Depends(get_db_session), image_number: int, image_url: str = Form(...)):
+async def update_config_esign_image(
+    image_number: int, 
+    image_url: str = Form(...),
+    session: AsyncSession = Depends(get_db_session)
+):
     """Updates a single Esign image URL (1 to 5)."""
     if image_number < 1 or image_number > 5:
         raise HTTPException(400, "Image number must be between 1 and 5.")

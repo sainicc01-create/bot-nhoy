@@ -16,7 +16,7 @@ from asyncio import sleep
 
 # ========== ENV & DB SETUP ==========
 # ⚠️ ជំនួស [YOUR_PASSWORD] ដោយពាក្យសម្ងាត់ពិតប្រាកដរបស់អ្នក។
-NEW_SAFE_PASSWORD = "nhoy@2003?ww"  # <-- ប្រើពាក្យសម្ងាត់ពិតប្រាកដរបស់អ្នកនៅទីនេះ
+NEW_SAFE_PASSWORD = "nhoyhub-order-db"  # <-- ប្រើពាក្យសម្ងាត់ពិតប្រាកដរបស់អ្នកនៅទីនេះ
 SAFE_PASSWORD_QUOTED = quote_plus(NEW_SAFE_PASSWORD) 
 
 # FIX: ប្រើ CONNECTION POOLER URI (Port 6543)

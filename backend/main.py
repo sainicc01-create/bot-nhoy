@@ -23,7 +23,7 @@ SAFE_PASSWORD_QUOTED = quote_plus(NEW_SAFE_PASSWORD)
 # Host Pooler (aws-0-ap-southeast-1.pooler.supabase.com) ត្រូវតែត្រូវតាម Region របស់អ្នក
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    f"postgresql+asyncpg://postgres:{SAFE_PASSWORD_QUOTED}@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres?sslmode=require"
+    f"postgresql+asyncpg://postgres:{SAFE_PASSWORD_QUOTED}@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres"
 )
 
 

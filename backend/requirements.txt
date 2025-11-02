@@ -1,6 +1,6 @@
 fastapi
 uvicorn
-motor
+sqlalchemy[asyncio]
+asyncpg
 python-multipart
 pydantic
-sqlalchemy

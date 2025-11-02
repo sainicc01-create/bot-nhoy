@@ -10,6 +10,7 @@ from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel # Ensure BaseModel is imported
 from sqlalchemy import create_engine, text
 
+
 # ========== MODELS (MOVED TO TOP) ==========
 # We remove the unused field_validator import dependency from this module to simplify
 
@@ -116,14 +117,15 @@ with engine.begin() as conn:
 app = FastAPI(title="NhoyHub Order API", version="2.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
+    allow_origins=["https://nhoy-api.onrender.com"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
 )
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 ADMIN_TOKEN = "admin_token"
 
-# ========== AUTH & HELPERS ==========
+# ========== AUTH & HELPERS ==========from sqlalchemy import create_engine, text
+
 def require_admin(token: str = Depends(oauth2_scheme)):
     if token != ADMIN_TOKEN:
         raise HTTPException(401, "Unauthorized")

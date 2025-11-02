@@ -16,7 +16,7 @@ from asyncio import sleep
 
 # ========== ENV & DB SETUP ==========
 # ⚠️ ជំនួស [YOUR_PASSWORD] ដោយពាក្យសម្ងាត់ពិតប្រាកដរបស់អ្នក។
-NEW_SAFE_PASSWORD = "nhoyhub-order-db"  # <-- ប្រើពាក្យសម្ងាត់ពិតប្រាកដរបស់អ្នកនៅទីនេះ
+NEW_SAFE_PASSWORD = "nhoy-api@@2003"  # <-- ប្រើពាក្យសម្ងាត់ពិតប្រាកដរបស់អ្នកនៅទីនេះ
 SAFE_PASSWORD_QUOTED = quote_plus(NEW_SAFE_PASSWORD) 
 
 # FIX: ប្រើ CONNECTION POOLER URI (Port 6543)
@@ -48,7 +48,7 @@ app = FastAPI(title="NhoyHub Order API", version="4.0 - PostgreSQL")
 # CORS Policy: Allowing all origins for development flexibility
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["https://nhoy-api.onrender.com"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

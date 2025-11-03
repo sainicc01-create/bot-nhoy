@@ -45,7 +45,7 @@ app = FastAPI(title="NhoyHub Order API", version="4.0 - MongoDB")
 # CORS Policy: Use your deployment URL for security in production
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Keeping it open for flexibility during development/testing
+    allow_origins=["https://bot-nhoy.vercel.app/"], # Keeping it open for flexibility during development/testing
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

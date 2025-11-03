@@ -87,7 +87,7 @@
 </main>
 
 <script>
-const API = "http://127.0.0.1:8000";
+const API = "https://nhoy-api.onrender.com";
 
 function token() { return localStorage.getItem("admin_token") || ""; }
 function authHeaders() { return { "Authorization": "Bearer " + token() }; }

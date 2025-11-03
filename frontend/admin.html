@@ -24,7 +24,11 @@
     <form id="addForm" class="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
       <input name="name" class="border rounded px-3 py-2 w-full" placeholder="Name" required>
       <input name="udid" class="border rounded px-3 py-2 w-full" placeholder="UDID" required>
-      <input name="image" type="file" class="border rounded px-3 py-2 w-full" required>
+      <select name="status" class="border rounded px-3 py-2 w-full" required>
+        <option value="pending">pending</option>
+        <option value="approved">approved</option>
+        <option value="rejected">backlist</option>
+      </select>
       <button class="bg-indigo-600 text-white rounded px-4 py-2 w-full hover:bg-indigo-700 transition">Add</button>
     </form>
     <p id="addMsg" class="text-sm mt-2"></p>
@@ -110,7 +114,7 @@
 </div>
 
 <script>
-const API = "https://nhoy-api.onrender.com"; // <-- ជំនួស URL ថ្មី
+const API = "http://127.0.0.1:8000"; // <-- ជំនួស URL ថ្មី
 let page = 1, pageSize = 12, total = 0;
 
 function token() { return localStorage.getItem("admin_token") || ""; }
@@ -249,14 +253,62 @@ document.getElementById('configPublicForm').addEventListener('submit', async (e)
 });
 
 
-// --- ORDER MANAGEMENT (EXISTING LOGIC) ---
+// --- ORDER MANAGEMENT (MODIFIED LOGIC) ---
 document.getElementById('addForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
-  const fd = new FormData(e.target);
+  const f = e.target;
+  const initialFd = new FormData();
+  
+  // 1. Extract required fields for initial POST /orders
+  initialFd.append("name", f.name.value);
+  initialFd.append("udid", f.udid.value);
+  
+  // FIX: Create a dummy file to satisfy the FastAPI endpoint requirement for an 'image'
+  const dummyFile = new Blob(["placeholder"], { type: "image/jpeg" });
+  // NOTE: The API requires a file with the name 'image'
+  initialFd.append("image", dummyFile, "placeholder.jpg"); 
+
+  const selectedStatus = f.status.value;
+  const finalStatus = selectedStatus === 'backlist' ? 'rejected' : selectedStatus; // Convert backlist to rejected if needed
+  
   try {
-    const res = await fetch(API + "/orders", { method:"POST", body: fd });
     const msg = document.getElementById('addMsg');
-    if (res.ok){ msg.textContent = "✅ Created"; e.target.reset(); load(); } else { msg.textContent = "❌ Failed"; }
+    msg.textContent = "Creating order...";
+    
+    // STEP 1: Create the order (API expects name, udid, image)
+    const res = await fetch(API + "/orders", { method:"POST", body: initialFd });
+    
+    if (res.ok){ 
+        const newOrder = await res.json();
+        const orderId = newOrder.id;
+        
+        // STEP 2: If the status is NOT pending, update it immediately via PUT /orders/{id}
+        if (finalStatus !== 'pending') {
+            msg.textContent = "Order created. Updating status...";
+            
+            const updateFd = new FormData();
+            updateFd.append("status", finalStatus);
+            
+            const updateRes = await fetch(`${API}/orders/${orderId}`, { 
+                method: "PUT", 
+                headers: authHeaders(), 
+                body: updateFd 
+            });
+            
+            if (updateRes.ok) {
+                msg.textContent = `✅ Created and status set to ${selectedStatus}`; 
+            } else {
+                msg.textContent = `✅ Created but status update failed for ${selectedStatus}`;
+            }
+        } else {
+            msg.textContent = "✅ Created (Pending)"; 
+        }
+
+        e.target.reset(); 
+        load(); 
+    } else { 
+        msg.textContent = "❌ Failed to create order"; 
+    }
   } catch (error) {
     document.getElementById('addMsg').textContent = "❌ Network Error. Is API running?";
   }
@@ -288,9 +340,24 @@ async function load(){
 
     const tb = document.getElementById('tbody');
     tb.innerHTML = "";
+    if (data.items.length === 0) {
+        tb.innerHTML = '<tr><td colspan="9" class="p-4 text-center text-gray-500">No orders found.</td></tr>';
+        return;
+    }
     data.items.forEach(o=>{
       // Map DB status to display status
       const displayStatus = o.status === 'rejected' ? 'backlist' : o.status;
+      
+      // NEW LOGIC: Override image URL based on status as requested by the user
+      let displayImageUrl = `${API}${o.image_url}`;
+      
+      if (o.status === 'rejected') {
+          // Status 'rejected' (displayed as 'backlist') uses specific image
+          displayImageUrl = 'https://i.pinimg.com/736x/e4/b4/a9/e4b4a92517222a1c0d36477d820416c0.jpg';
+      } else if (o.status === 'pending') {
+          // Status 'pending' uses specific image
+          displayImageUrl = 'https://i.pinimg.com/736x/34/01/a0/3401a08f04de796cdbb1ef8dccbed01f.jpg';
+      }
       
       const statusColor = o.status==='approved'?'border-green-500 bg-green-50 text-green-700':'' +
                           (o.status==='pending'?'border-yellow-500 bg-yellow-50 text-yellow-700':'' )+
@@ -300,7 +367,7 @@ async function load(){
       tb.innerHTML += `
         <tr class="border-b">
           <td class="p-2">${o.id}</td>
-          <td class="p-2"><img src="${API}${o.image_url}" class="w-12 h-12 rounded object-cover" onerror="this.onerror=null;this.src='https://via.placeholder.com/48/ccc?text=No%20Img';"></td>
+          <td class="p-2"><img src="${displayImageUrl}" class="w-12 h-12 rounded object-cover" onerror="this.onerror=null;this.src='https://via.placeholder.com/48/ccc?text=No%20Img';"></td>
           <td class="p-2">${o.name}</td>
           <td class="p-2 break-all font-mono text-xs">${o.udid}</td>
           <td class="p-2">

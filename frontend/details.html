@@ -83,8 +83,11 @@
 </main>
 
 <script>
-const API = "https://nhoy-api.onrender.com";
-const FIXED_ADMIN_TOKEN = "admin_token"; 
+// FIX 1: Use deployment placeholder URL
+const API = "http://127.0.0.1:8000"; 
+// FIX 2: Use actual ADMIN_TOKEN for fetching config, or rely on public configuration if needed.
+// Since /config is admin-only, we must send a token.
+const FIXED_ADMIN_TOKEN = "nhoyhub_admin_2025"; 
 const defaultPlaceholder = "https://via.placeholder.com/400x200/cccccc/000000?text=No+Image+Set";
 
 let esignImageUrls = [];
@@ -93,6 +96,7 @@ let currentImageIndex = 0;
 // Fetches the global Esign image URL array from the DB config table
 async function getGlobalConfig() {
     try {
+        // Must send token as /config is protected
         const res = await fetch(API + "/config", { 
             headers: { "Authorization": "Bearer " + FIXED_ADMIN_TOKEN } 
         });
@@ -178,7 +182,7 @@ async function loadDetails() {
         esignImageUrls = urls; // Store global image array
         
         if (!orderRes.ok) {
-            errorDiv.textContent = `❌ Failed to fetch order ${orderId}. Status: ${orderRes.status}.`;
+            errorDiv.textContent = `❌ Failed to fetch order ${orderId}. Status: ${orderRes.status}. Is the API running on ${API}?`;
             errorDiv.classList.remove('hidden');
             return;
         }
@@ -208,8 +212,13 @@ async function loadDetails() {
         const downloadMessage = document.getElementById('download-message');
         const downloadLink = order.download_link;
 
-        if (downloadLink && downloadLink !== '#' && downloadLink !== '') {
+        // Check for a valid download link
+        if (downloadLink && downloadLink !== '#' && downloadLink.trim() !== '') {
             downloadButton.href = downloadLink;
+            // FIX 3: Remove disabled classes to make button look active
+            downloadButton.classList.remove('bg-gray-400', 'cursor-not-allowed', 'opacity-75');
+            downloadButton.disabled = false;
+            downloadMessage.classList.add('hidden');
         } else {
             // Disable button and show message if no link is set by admin
             downloadButton.href = "#";
@@ -223,7 +232,7 @@ async function loadDetails() {
         content.classList.remove('hidden');
 
     } catch (e) {
-        errorDiv.textContent = '❌ Network Error. Could not load order data. Check console for details.';
+        errorDiv.textContent = `❌ Network Error. Could not load order data from ${API}. Check console for details.`;
         errorDiv.classList.remove('hidden');
     } finally {
         loader.classList.add('hidden');

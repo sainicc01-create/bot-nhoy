@@ -6,10 +6,12 @@ import aiohttp
 import json
 import os 
 from typing import Optional
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Message
+# FIX: Import File type for accurate type hinting and HTTPXRequest for timeout
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Message, File 
 from telegram.helpers import escape_markdown
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from telegram.error import InvalidToken
+from telegram.request import HTTPXRequest 
 
 
 # --- CONFIGURATION (MUST BE SET AS ENVIRONMENT VARIABLES ON RENDER) ---
@@ -20,8 +22,8 @@ BOT_2_TOKEN = os.getenv("BOT_2_TOKEN", "6994395596:AAGaw7m9reS-wcJvozclC4D6JniZK
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "1732455712")
 BOT_2_ADMIN_CHAT_ID = os.getenv("BOT_2_ADMIN_CHAT_ID", "1732455712")
 
-# FIX: FASTAPI_API_URL ត្រូវជំនួសដោយ URL របស់ Render ថ្មីរបស់អ្នក
-FASTAPI_API_URL = os.getenv("FASTAPI_API_URL", "https://nhoy-api-new.onrender.com")
+# FIX: Change local testing URL to deployment placeholder URL
+FASTAPI_API_URL = os.getenv("FASTAPI_API_URL", "http://127.0.0.1:8000")
 FASTAPI_ADMIN_TOKEN = os.getenv("FASTAPI_ADMIN_TOKEN", "nhoyhub_admin_2025") # Must match token in main.py
 
 
@@ -47,13 +49,15 @@ completed_orders = {}
 
 # --- HELPER FUNCTIONS ---
 
-async def create_fastapi_order(user_id: int, username: str, udid: str, payment_option: str, photo_file: object) -> Optional[int]:
+# Use telegram.File type hint for photo_file
+async def create_fastapi_order(user_id: int, username: str, udid: str, payment_option: str, photo_file: File) -> Optional[int]:
     """Uploads file to FastAPI and creates a new order entry."""
     url = f"{FASTAPI_API_URL}/orders"
     username_clean = username.replace('@', '') if username.startswith('@') else username
     name_with_price = f"{username_clean} (${payment_option} Plan)"
 
     try:
+        # FIX: The file is now correctly typed as File
         file_bytes = await photo_file.download_as_bytearray()
     except Exception as e:
         logger.error(f"Failed to download photo file: {e}")
@@ -81,13 +85,17 @@ async def create_fastapi_order(user_id: int, username: str, udid: str, payment_o
 
 async def update_fastapi_order_status(order_id: int, status: str) -> bool:
     """Updates the status of an order in the FastAPI database."""
-    url = f"{FASTAPI_API_URL}/orders/{order_id}/status"
+    # FIX: Use the correct PUT /orders/{order_id} endpoint from main.py
+    url = f"{FASTAPI_API_URL}/orders/{order_id}"
     headers = {"Authorization": f"Bearer {FASTAPI_ADMIN_TOKEN}"}
-    payload = {"status": status}
+    
+    # Send only 'status' in a multipart form request to match main.py PUT signature
+    data = aiohttp.FormData()
+    data.add_field('status', status)
     
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.put(url, headers=headers, json=payload, timeout=10) as response:
+            async with session.put(url, headers=headers, data=data, timeout=10) as response:
                 if response.status == 200:
                     logger.info(f"Successfully updated FastAPI order {order_id} to {status}")
                     return True
@@ -424,6 +432,7 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
     
     try:
+        # File type is now correctly imported and used
         photo_file = await update.message.photo[-1].get_file() 
     except Exception as e:
         logger.error(f"Failed to get file object: {e}")
@@ -490,11 +499,15 @@ async def handle_copy_udid(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     udid = user_info['udid']
     username = user_info['username']
     if query.message:
-        await query.message.reply_text(
-            f"📋 *UDID for User {escape_markdown(username, version=2)}:*\n\n"
-            f"```\n{udid}\n```\n\n*Click the UDID above to copy it\\.*",
-            parse_mode='MarkdownV2'
-        )
+        # FIX: Added group/private chat check for safer reply_text
+        if query.message.chat.type in ['group', 'supergroup']:
+            await query.message.reply_text(
+                f"📋 *UDID for User {escape_markdown(username, version=2)}:*\n\n"
+                f"```\n{udid}\n```\n\n*Click the UDID above to copy it\\.*",
+                parse_mode='MarkdownV2'
+            )
+        else:
+            await query.answer(text=f"📋 UDID: {udid}", show_alert=True)
     else:
         logger.error("query.message is None, cannot send reply_text for copy UDID.")
     logger.info(f"Admin copied UDID for user {user_id}")
@@ -560,9 +573,18 @@ async def main() -> None:
     print("🤖 Starting Enhanced Telegram Bot System...")
     print("=" * 50)
     
+    # FIX: Define a request object with a higher timeout (30 seconds)
+    # The keyword is 'connect_timeout', not 'connection_timeout'
+    custom_request = HTTPXRequest(
+        connect_timeout=30.0, 
+        read_timeout=30.0,       
+        write_timeout=30.0,      
+    )
+    
     try:
-        app1 = Application.builder().token(BOT_TOKEN).build()
-        app2 = Application.builder().token(BOT_2_TOKEN).build()
+        # Pass the custom request object to Application.builder()
+        app1 = Application.builder().token(BOT_TOKEN).request(custom_request).build()
+        app2 = Application.builder().token(BOT_2_TOKEN).request(custom_request).build()
     except InvalidToken as e:
         logger.critical(f"Bot initialization failed due to invalid token: {e}", exc_info=True)
         return

@@ -1,55 +1,51 @@
-import os, datetime
-import re 
-import json 
-from typing import List, Optional
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Query, Request 
+import os
+import datetime
+import re
+from typing import List, Optional, Dict, Any
+
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy import text, StaticPool
-from sqlalchemy.exc import IntegrityError
-from urllib.parse import quote_plus
+from dotenv import load_dotenv
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase, AsyncIOMotorCollection
 from math import ceil
-from asyncio import sleep
 
-# ========== ENV & DB SETUP ==========
-# ⚠️ ជំនួស [YOUR_PASSWORD] ដោយពាក្យសម្ងាត់ពិតប្រាកដរបស់អ្នក។
-NEW_SAFE_PASSWORD = "nhoy-api@@2003"  # <-- ប្រើពាក្យសម្ងាត់ពិតប្រាកដរបស់អ្នកនៅទីនេះ
-SAFE_PASSWORD_QUOTED = quote_plus(NEW_SAFE_PASSWORD) 
+# ================== ENV & DB SETUP (MongoDB) ==================
+# Load environment variables from .env if running locally
+load_dotenv()
 
-# FIX: ប្រើ CONNECTION POOLER URI (Port 6543)
-# Host Pooler (aws-0-ap-southeast-1.pooler.supabase.com) ត្រូវតែត្រូវតាម Region របស់អ្នក
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    f"postgresql+asyncpg://postgres:{SAFE_PASSWORD_QUOTED}@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres"
-)
+# Use MongoDB URL and Admin Token from the environment
+MONGODB_URL = os.getenv("MONGODB_URL", "mongodb+srv://nhoyadmin:NhoyAPI%402003!@clusternhoy.6lxwgtj.mongodb.net/?appName=ClusterNhoy")
+DB_NAME = os.getenv("DB_NAME", "nhoy")
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "nhoyhub_admin_2025")
 
+if not MONGODB_URL:
+    raise RuntimeError("MONGODB_URL is not set.")
 
-# Setup SQLAlchemy Async Engine
-engine = create_async_engine(
-    DATABASE_URL,
-    echo=False,
-    pool_recycle=3600
-)
-AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
-
-# UPLOAD_DIR and Admin Token
+# UPLOAD_DIR and Defaults
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
-ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "nhoyhub_admin_2025")
-DEFAULT_CART_IMAGE = "https://i.pinimg.com/736x/67/74/40/67744063f3ce36103729fb5ed2edc98e.jpg" 
+DEFAULT_CART_IMAGE = "https://i.pinimg.com/736x/67/74/40/67744063f3ce36103729fb5ed2edc98e.jpg"
 DEFAULT_ESIGN_IMAGE = "https://via.placeholder.com/400x200/007bff/ffffff?text=Esign+Image"
 DEFAULT_DOWNLOAD_LINK = "#"
 
+# ================== MONGO GLOBALS (Typed for Pylance) ==================
+client: Optional[AsyncIOMotorClient] = None
+db: Optional[AsyncIOMotorDatabase] = None
+col_orders: Optional[AsyncIOMotorCollection] = None
+col_admins: Optional[AsyncIOMotorCollection] = None
+col_config: Optional[AsyncIOMotorCollection] = None
+col_counters: Optional[AsyncIOMotorCollection] = None # For generating sequential 'id'
 
-app = FastAPI(title="NhoyHub Order API", version="4.0 - PostgreSQL")
 
-# CORS Policy: Allowing all origins for development flexibility
+app = FastAPI(title="NhoyHub Order API", version="4.0 - MongoDB")
+
+# CORS Policy: Use your deployment URL for security in production
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://nhoy-api.onrender.com"], 
+    allow_origins=["*"], # Keeping it open for flexibility during development/testing
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -57,99 +53,79 @@ app.add_middleware(
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
-# Dependency to get Async Database Session
-async def get_db_session():
-    async with AsyncSessionLocal() as session:
-        yield session
 
-# ========== DB INITIALIZATION (SQL Logic) ==========
-async def create_db_tables(conn):
-    
-    # ORDERS TABLE
-    await conn.execute(text("""
-        CREATE TABLE IF NOT EXISTS orders (
-            id SERIAL PRIMARY KEY,
-            name TEXT NOT NULL,
-            udid TEXT NOT NULL,
-            image_url TEXT NOT NULL,
-            status VARCHAR(20) DEFAULT 'pending',
-            download_link TEXT DEFAULT '#',
-            price VARCHAR(10) DEFAULT 'N/A',
-            created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        );
-    """))
-    # ADMINS TABLE
-    await conn.execute(text("""
-        CREATE TABLE IF NOT EXISTS admins (
-            id SERIAL PRIMARY KEY,
-            username VARCHAR(50) UNIQUE NOT NULL,
-            password VARCHAR(100) NOT NULL
-        );
-    """))
-    # CONFIG TABLE
-    await conn.execute(text("""
-        CREATE TABLE IF NOT EXISTS config (
-            key VARCHAR(50) PRIMARY KEY,
-            value TEXT NOT NULL
-        );
-    """))
-
-    # Initial data population
-    async with AsyncSessionLocal() as session:
-        async with session.begin():
-            # 1. Default Admin
-            admin_exists = await session.scalar(text("SELECT 1 FROM admins WHERE username='admin'"))
-            if not admin_exists:
-                await session.execute(
-                    text("INSERT INTO admins(username, password) VALUES('admin', '1234')")
-                )
-            
-            # 2. Default Configs
-            config_keys = {
-                'public_image_url': DEFAULT_CART_IMAGE,
-                'esign_image_1': DEFAULT_ESIGN_IMAGE + " 1",
-                'esign_image_2': DEFAULT_ESIGN_IMAGE + " 2",
-                'esign_image_3': DEFAULT_ESIGN_IMAGE + " 3",
-                'esign_image_4': DEFAULT_ESIGN_IMAGE + " 4",
-                'esign_image_5': DEFAULT_ESIGN_IMAGE + " 5",
-            }
-            
-            for key, default_value in config_keys.items():
-                config_exists = await session.scalar(text("SELECT 1 FROM config WHERE key=:k"), {"k": key})
-                if not config_exists:
-                    await session.execute(
-                        text("INSERT INTO config(key, value) VALUES(:k, :v)"),
-                        {"k": key, "v": default_value}
-                    )
-        await session.commit()
-
+# ========== MONGO DB INITIALIZATION LOGIC ==========
+async def get_next_seq(name: str) -> int:
+    """Atomic counter to keep integer ids like in SQL."""
+    # This is MongoDB's way of implementing auto-increment
+    doc = await col_counters.find_one_and_update(
+        {"_id": name},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=True,
+    )
+    if not doc:
+        doc = await col_counters.find_one({"_id": name})
+        if not doc:
+            return 1
+    return int(doc["seq"])
 
 @app.on_event("startup")
 async def startup_event():
-    """Initializes database structure on startup."""
+    """Initializes MongoDB connection and collection structure on startup."""
+    global client, db, col_orders, col_admins, col_config, col_counters
+    
     try:
-        # ព្យាយាមភ្ជាប់ម្តងទៀតរហូតដល់ ៥ ដង ប្រសិនបើបរាជ័យ (សម្រាប់ពេល Pooler ចាប់ផ្តើម)
-        for attempt in range(5):
-            try:
-                async with engine.begin() as conn:
-                    await create_db_tables(conn)
-                    print("Database setup complete: Tables and default data checked/created.")
-                    return # ចេញពី loop បើជោគជ័យ
-            except Exception as e:
-                print(f"Database connection attempt {attempt+1} failed: {e}. Retrying in 5 seconds...")
-                if attempt < 4:
-                    await sleep(5)
-                else:
-                    print(f"FATAL DATABASE ERROR ON STARTUP after 5 attempts: {e}")
-                    raise HTTPException(503, detail="Service Unavailable: Database failed to initialize after multiple attempts.")
+        client = AsyncIOMotorClient(MONGODB_URL, serverSelectionTimeoutMS=5000)
+        db = client[DB_NAME]
+        
+        # Assign collections
+        col_orders = db["orders"]
+        col_admins = db["admins"]
+        col_config = db["config"]        # {_id: key, value: string}
+        col_counters = db["counters"]    # {_id: 'orders', seq: int}
 
+        # Create indexes (like SQL primary/unique keys)
+        await col_orders.create_index([("id", 1)], unique=True)
+        await col_orders.create_index([("udid", 1)])
+        await col_admins.create_index([("username", 1)], unique=True)
+
+        # Seed admin if not exists
+        admin = await col_admins.find_one({"username": "admin"})
+        if not admin:
+            await col_admins.insert_one({"username": "admin", "password": "1234"})
+
+        # Seed config defaults if missing
+        config_keys = {
+            'public_image_url': DEFAULT_CART_IMAGE,
+            'esign_image_1': DEFAULT_ESIGN_IMAGE + " 1",
+            'esign_image_2': DEFAULT_ESIGN_IMAGE + " 2",
+            'esign_image_3': DEFAULT_ESIGN_IMAGE + " 3",
+            'esign_image_4': DEFAULT_ESIGN_IMAGE + " 4",
+            'esign_image_5': DEFAULT_ESIGN_IMAGE + " 5",
+        }
+        for key, default_value in config_keys.items():
+            if not await col_config.find_one({"_id": key}):
+                await col_config.insert_one({"_id": key, "value": default_value})
+        
+        print("Database setup complete: MongoDB collections and default data checked/created.")
 
     except Exception as e:
-        # បើការប៉ុនប៉ងទាំង ៥ បរាជ័យ វានឹងលើក HTTPException(503) ឡើង
-        pass
+        print(f"FATAL DATABASE ERROR ON STARTUP: {e}")
+        raise HTTPException(503, detail="Service Unavailable: Database connection failed on startup.")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    if client:
+        client.close()
+
+# Dependency (dummy for MongoDB, as we don't need to manage sessions like SQLAlchemy)
+async def get_db_session():
+    # Placeholder for dependency compatibility; not strictly needed for motor operations
+    yield
 
 
-# ========== MODELS & UTILS (Keep existing models) ==========
+# ========== MODELS & UTILS ==========
 class OrderOut(BaseModel):
     id: int 
     name: str
@@ -186,73 +162,67 @@ def is_admin_request(headers):
     return token == f"Bearer {ADMIN_TOKEN}"
 
 
-# ========== AUTH & HELPERS (Keep existing logic) ==========
-async def get_config_value(key: str, session: AsyncSession):
-    result = await session.scalar(text("SELECT value FROM config WHERE key=:k"), {"k": key})
-    if result is None:
+# ========== AUTH & HELPERS (MongoDB) ==========
+async def get_config_value(key: str):
+    """Fetches config value from MongoDB."""
+    doc = await col_config.find_one({"_id": key})
+    if not doc:
         if key == 'public_image_url':
             return DEFAULT_CART_IMAGE
         elif 'esign_image_' in key:
             return DEFAULT_ESIGN_IMAGE
         return "#"
-    return result
+    return doc.get("value", "#")
+
 
 @app.post("/login")
-async def login(session: AsyncSession = Depends(get_db_session), username: str = Form(...), password: str = Form(...)):
-    admin_data = await session.execute(
-        text("SELECT * FROM admins WHERE username=:u AND password=:p"),
-        {"u": username, "p": password}
-    )
-    if admin_data.first():
+async def login(username: str = Form(...), password: str = Form(...)):
+    """Handles admin login using MongoDB."""
+    admin_doc = await col_admins.find_one({"username": username, "password": password})
+    if admin_doc:
         return {"token": ADMIN_TOKEN, "username": username} 
     raise HTTPException(401, "Invalid credentials")
 
 @app.get("/", tags=["health"])
 async def health():
+    """Checks MongoDB connection status."""
     try:
-        async with engine.begin() as conn:
-             await conn.execute(text("SELECT 1"))
-        return {"ok": True, "db": "PostgreSQL Connected ✅"}
+        # PING the database to ensure connection
+        await db.command("ping")
+        return {"ok": True, "db": "MongoDB Connected ✅"}
     except Exception as e:
-        # ប្រសិនបើ DB មិនអាចភ្ជាប់បាន នឹងបង្ហាញ 503
         raise HTTPException(503, detail="Service Unavailable: Database connection failed.")
 
 
-# ========== CONFIG ENDPOINTS (FIXED update_config_esign_image) ==========
+# ========== CONFIG ENDPOINTS (MongoDB) ==========
 @app.get("/config", dependencies=[Depends(require_admin)])
-async def get_config(session: AsyncSession = Depends(get_db_session)):
+async def get_config():
     """Returns current configuration (Admin only)."""
     config_data = {
-        "public_image_url": await get_config_value('public_image_url', session),
+        "public_image_url": await get_config_value('public_image_url'),
     }
     for i in range(1, 6):
-        config_data[f"esign_image_{i}"] = await get_config_value(f"esign_image_{i}", session)
+        config_data[f"esign_image_{i}"] = await get_config_value(f"esign_image_{i}")
         
     return config_data
 
 @app.put("/config/public", dependencies=[Depends(require_admin)])
-async def update_config_public(session: AsyncSession = Depends(get_db_session), public_image_url: str = Form(...)):
+async def update_config_public(public_image_url: str = Form(...)):
     """Updates the public order list image URL."""
     if not public_image_url:
         raise HTTPException(400, "Image URL cannot be empty.")
         
-    await session.execute(
-        text("""
-            INSERT INTO config(key, value) VALUES('public_image_url', :v)
-            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-        """),
-        {"v": public_image_url}
+    # MongoDB upsert operation
+    await col_config.update_one(
+        {"_id": 'public_image_url'},
+        {"$set": {"value": public_image_url}},
+        upsert=True
     )
-    await session.commit()
     return {"message": "Public image URL updated successfully", "public_image_url": public_image_url}
 
-# កែតម្រូវលំដាប់ Arguments
+
 @app.put("/config/esign_image/{image_number}", dependencies=[Depends(require_admin)])
-async def update_config_esign_image(
-    image_number: int, 
-    image_url: str = Form(...),
-    session: AsyncSession = Depends(get_db_session)
-):
+async def update_config_esign_image(image_number: int, image_url: str = Form(...)):
     """Updates a single Esign image URL (1 to 5)."""
     if image_number < 1 or image_number > 5:
         raise HTTPException(400, "Image number must be between 1 and 5.")
@@ -261,20 +231,19 @@ async def update_config_esign_image(
         
     key = f"esign_image_{image_number}"
     
-    await session.execute(
-        text("""
-            INSERT INTO config(key, value) VALUES(:k, :v)
-            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-        """),
-        {"k": key, "v": image_url}
+    # MongoDB upsert operation
+    await col_config.update_one(
+        {"_id": key},
+        {"$set": {"value": image_url}},
+        upsert=True
     )
-    await session.commit()
     return {"message": f"Esign Image {image_number} updated successfully", "image_url": image_url}
 
 
-# ========== ORDERS (Keep existing CRUD/Pagination logic) ==========
+# ========== ORDERS (MongoDB) ==========
 @app.post("/orders", response_model=OrderOut)
-async def create_order(session: AsyncSession = Depends(get_db_session), name: str = Form(...), udid: str = Form(...), image: UploadFile = File(...)):
+async def create_order(name: str = Form(...), udid: str = Form(...), image: UploadFile = File(...)):
+    """Creates a new order entry and saves the payment proof image."""
     price_match = re.search(r"\$(\d+)", name)
     price = price_match.group(1) if price_match else "N/A"
 
@@ -288,8 +257,11 @@ async def create_order(session: AsyncSession = Depends(get_db_session), name: st
         
     with open(filepath, "wb") as f:
         f.write(content)
-
+    
+    new_id = await get_next_seq("orders") # Get sequential ID
+    
     data = {
+        "id": new_id, # Use sequential ID
         "name": name,
         "udid": udid,
         "image_url": f"/uploads/{filename}",
@@ -299,130 +271,126 @@ async def create_order(session: AsyncSession = Depends(get_db_session), name: st
         "created_at": datetime.datetime.utcnow().isoformat()
     }
     
-    result = await session.execute(
-        text("""
-            INSERT INTO orders(name, udid, image_url, status, download_link, price, created_at)
-            VALUES (:name, :udid, :img, :status, :dlink, :price, :ts) RETURNING id
-        """), {
-            "name": data["name"], 
-            "udid": data["udid"], 
-            "img": data["image_url"], 
-            "status": data["status"],
-            "dlink": data["download_link"],
-            "price": data["price"],
-            "ts": data["created_at"]
-        }
-    )
-    order_id = result.scalar_one()
-    await session.commit()
+    await col_orders.insert_one(data)
     
-    # Fetch and return the full created row
-    row = await session.execute(text("SELECT * FROM orders WHERE id=:id"), {"id": order_id})
-    row_dict = row.mappings().first()
-    return row_dict
+    # Return the created document (MongoDB includes _id, which is ignored by Pydantic model)
+    return data
 
 
 @app.get("/orders", response_model=PageOut)
 async def list_orders(
     request: Request,
-    session: AsyncSession = Depends(get_db_session),
     status: Optional[str] = Query(None),
     q: Optional[str] = None,
     page: int = 1,
     page_size: int = 12,
     sort: str = "-id"
 ):
+    """Lists orders with pagination, search, and admin image filtering."""
     is_admin = is_admin_request(request.headers)
     page = max(page, 1)
     page_size = max(min(page_size, 50), 1)
     
-    where_clauses = []
-    params = {}
-    
+    # Build filter
+    filt: Dict[str, Any] = {}
     if status:
-        where_clauses.append("status = :status")
-        params["status"] = status
-    
+        filt["status"] = status
     if q:
-        # Use ILIKE for case-insensitive search in Postgres
-        where_clauses.append("(name ILIKE :q OR udid ILIKE :q)") 
-        params["q"] = f"%{q}%"
+        # Case-insensitive search on name or udid (MongoDB $regex)
+        regex = {"$regex": q, "$options": "i"}
+        filt["$or"] = [{"name": regex}, {"udid": regex}]
     
-    where_sql = f" WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
-    
-    # 1. Get Total Count
-    count_query = text(f"SELECT COUNT(*) FROM orders {where_sql}")
-    total_count = await session.scalar(count_query, params)
-    
-    # 2. Determine sorting
-    sort_column = "id"
-    sort_order = "DESC" if sort == "-id" else "ASC"
+    # Determine sorting (MongoDB format)
+    sort_key = ("id", -1) if sort == "-id" else ("id", 1)
     offset = (page - 1) * page_size
     
-    # 3. Fetch data
-    fetch_query = text(f"""
-        SELECT * FROM orders {where_sql}
-        ORDER BY {sort_column} {sort_order}
-        LIMIT :limit OFFSET :offset
-    """)
-    rows = await session.execute(fetch_query, {**params, "limit": page_size, "offset": offset})
+    # 1. Get Total Count
+    total_count = await col_orders.count_documents(filt)
     
-    public_image_url = await get_config_value('public_image_url', session)
+    # 2. Fetch data
+    cursor = col_orders.find(filt).sort([sort_key]).skip(offset).limit(page_size)
     
-    items = []
-    for r in rows.mappings():
-        item = dict(r)
+    public_image_url = await get_config_value('public_image_url')
+    
+    items: List[OrderOut] = []
+    async for r in cursor:
+        item = {
+            "id": int(r.get("id")),
+            "name": r.get("name", ""),
+            "udid": r.get("udid", ""),
+            "image_url": r.get("image_url", ""),
+            "status": r.get("status", "pending"),
+            "download_link": r.get("download_link", DEFAULT_DOWNLOAD_LINK),
+            "price": r.get("price", "N/A"),
+            "created_at": r.get("created_at", datetime.datetime.utcnow().isoformat()),
+        }
         
         # SECURITY/UX: Replace payment image for public users
         if not is_admin:
             item["image_url"] = public_image_url
         
-        items.append(item)
+        items.append(OrderOut(**item))
         
-    return {
-        "items": items,
-        "total": total_count,
-        "page": page,
-        "page_size": page_size
-    }
+    return PageOut(
+        items=items,
+        total=total_count,
+        page=page,
+        page_size=page_size
+    )
 
 
 @app.get("/orders/{order_id}", response_model=OrderOut)
-async def get_order(order_id: int, session: AsyncSession = Depends(get_db_session)):
-    row = await session.execute(text("SELECT * FROM orders WHERE id=:id"), {"id": order_id})
-    row_dict = row.mappings().first()
+async def get_order(order_id: int):
+    """Retrieves a single order by ID."""
+    row = await col_orders.find_one({"id": order_id})
     
-    if not row_dict:
+    if not row:
         raise HTTPException(404, "Order not found")
+        
+    # Map MongoDB result to Pydantic model
+    row_dict = {
+        "id": int(row.get("id")),
+        "name": row.get("name", ""),
+        "udid": row.get("udid", ""),
+        "image_url": row.get("image_url", ""),
+        "status": row.get("status", "pending"),
+        "download_link": row.get("download_link", DEFAULT_DOWNLOAD_LINK),
+        "price": row.get("price", "N/A"),
+        "created_at": row.get("created_at", datetime.datetime.utcnow().isoformat()),
+    }
     return row_dict
 
 
 @app.put("/orders/{order_id}", dependencies=[Depends(require_admin)], response_model=OrderOut)
 async def update_order(
     order_id: int, 
-    session: AsyncSession = Depends(get_db_session),
     name: Optional[str] = Form(None),
     udid: Optional[str] = Form(None),
     status: Optional[str] = Form(None),
     download_link: Optional[str] = Form(None),
     image: Optional[UploadFile] = File(None)
 ):
+    """Updates order details (Admin only)."""
+    
     # Fetch current order details
-    current_row = await session.execute(text("SELECT * FROM orders WHERE id=:id"), {"id": order_id})
-    current_order = current_row.mappings().first()
+    current_order = await col_orders.find_one({"id": order_id})
     if not current_order:
         raise HTTPException(404, "Order not found")
         
-    update_data = {}
+    update_data: Dict[str, Any] = {}
     
     # Handle File Upload
     if image is not None:
         ext = os.path.splitext(image.filename or "")[1] or ".jpg"
-        filename = f"{int(datetime.datetime.utcnow().timestamp())}_{safe_filename(name or current_order['name'])[:12]}{ext}"
+        filename = f"{int(datetime.datetime.utcnow().timestamp())}_{safe_filename(name or current_order.get('name', ''))[:12]}{ext}"
         filepath = os.path.join(UPLOAD_DIR, filename)
 
+        content = await image.read()
+        if not content:
+            raise HTTPException(400, "Empty image")
+            
         with open(filepath, "wb") as f:
-            f.write(await image.read())
+            f.write(content)
         
         update_data["image_url"] = f"/uploads/{filename}"
 
@@ -437,25 +405,31 @@ async def update_order(
         update_data["download_link"] = download_link or "#" # Save '#' if link is cleared
 
     # Perform Update
-    set_clauses = [f"{k}=:{k}" for k in update_data.keys()]
-    update_query = text(f"""
-        UPDATE orders SET {', '.join(set_clauses)} WHERE id = :id
-    """)
-    
-    await session.execute(update_query, {**update_data, "id": order_id})
-    await session.commit()
+    if update_data:
+        await col_orders.update_one({"id": order_id}, {"$set": update_data})
     
     # Return Updated Row
-    row = await session.execute(text("SELECT * FROM orders WHERE id=:id"), {"id": order_id})
-    return row.mappings().first()
+    updated_row = await col_orders.find_one({"id": order_id})
+    
+    row_dict = {
+        "id": int(updated_row.get("id")),
+        "name": updated_row.get("name", ""),
+        "udid": updated_row.get("udid", ""),
+        "image_url": updated_row.get("image_url", ""),
+        "status": updated_row.get("status", "pending"),
+        "download_link": updated_row.get("download_link", DEFAULT_DOWNLOAD_LINK),
+        "price": updated_row.get("price", "N/A"),
+        "created_at": updated_row.get("created_at", datetime.datetime.utcnow().isoformat()),
+    }
+    return row_dict
 
 
 @app.delete("/orders/{order_id}", dependencies=[Depends(require_admin)])
-async def delete_order(order_id: int, session: AsyncSession = Depends(get_db_session)):
-    
-    await session.execute(text("DELETE FROM orders WHERE id=:id"), {"id": order_id})
-    await session.commit()
+async def delete_order(order_id: int):
+    """Deletes an order by ID (Admin only)."""
+    await col_orders.delete_one({"id": order_id})
     return {"deleted": True}
 
 
+# Static mount for uploaded files - MUST be at the end
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")

@@ -68,9 +68,9 @@
   <div id="grid" class="grid gap-4 xs:grid-cols-2 md:grid-cols-3 lg:grid-cols-4"></div>
 
   <div class="flex items-center justify-center gap-2">
-    <button id="prev" class="px-3 py-1 border rounded">Prev</button>
+    <button id="prev" class="px-3 py-1 border rounded disabled:opacity-50">Prev</button>
     <span id="pageInfo" class="text-sm"></span>
-    <button id="next" class="px-3 py-1 border rounded">Next</button>
+    <button id="next" class="px-3 py-1 border rounded disabled:opacity-50">Next</button>
   </div>
 </main>
 
@@ -97,7 +97,7 @@ menuToggle.onclick = openMenu;
 closeMenu.onclick = closeMenuHandler;
 
 
-const API = "https://nhoy-api.onrender.com"; // <-- ជំនួស URL ថ្មី
+const API = "http://127.0.0.1:8000"; // <-- Deployment Placeholder URL
 let page = 1, pageSize = 12, lastTotal = 0;
 
 async function load() {
@@ -116,7 +116,7 @@ async function load() {
     lastTotal = data.total;
 
     document.getElementById('meta').textContent = `${data.total} orders total`;
-    document.getElementById('pageInfo').textContent = `Page ${data.page}`;
+    document.getElementById('pageInfo').textContent = `Page ${data.page} of ${Math.ceil(data.total / pageSize) || 1}`;
 
     const grid = document.getElementById('grid');
     grid.innerHTML = "";

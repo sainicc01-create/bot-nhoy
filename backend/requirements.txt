@@ -5,3 +5,4 @@ asyncpg
 python-multipart
 pydantic
 python-dotenv
+motor

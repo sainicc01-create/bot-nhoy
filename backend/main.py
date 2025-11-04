@@ -11,6 +11,8 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase, AsyncIOMotorCollection
 from math import ceil
+from motor.motor_asyncio import AsyncIOMotorClient
+
 
 # ================== ENV & DB SETUP (MongoDB) ==================
 # Load environment variables from .env if running locally
